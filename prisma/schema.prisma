@@ -640,6 +640,8 @@ model Offer {
   isTemplate     Boolean     @default(false)
   templateName   String?
   duplicatedFromId String?
+  /// set on a draft renewal offer made for a retainer that's ending
+  renewalOfProjectId String?
   createdById    String?
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
@@ -652,12 +654,14 @@ model Offer {
   versions      OfferVersion[]
   statusHistory OfferStatusHistory[]
   publicLinks   PublicLink[]
-  project       Project?
+  project       Project?             @relation("ProjectFromOffer")
+  renewalOf     Project?             @relation("RenewalOffers", fields: [renewalOfProjectId], references: [id], onDelete: SetNull)
   onboarding    OnboardingChecklist?
 
   @@index([status])
   @@index([clientId])
   @@index([leadId])
+  @@index([renewalOfProjectId])
   @@index([validUntil])
   @@index([followUpDate])
   @@index([offerDate])
@@ -816,7 +820,8 @@ model Project {
   archivedAt        DateTime?
 
   client         Client               @relation(fields: [clientId], references: [id])
-  offer          Offer?               @relation(fields: [offerId], references: [id])
+  offer          Offer?               @relation("ProjectFromOffer", fields: [offerId], references: [id])
+  renewalOffers  Offer[]              @relation("RenewalOffers")
   manager        User?                @relation("ProjectManager", fields: [managerId], references: [id])
   services       ProjectService[]
   milestones     Milestone[]

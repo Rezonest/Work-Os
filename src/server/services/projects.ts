@@ -9,6 +9,7 @@ import type { z } from "zod";
 import { ensureOfferOnboarding } from "./onboarding";
 import { milestoneAmount, milestoneBase } from "@/lib/invoice-rules";
 import { runInvoiceJob } from "./invoices";
+import { createRenewalOfferInTx } from "./offers";
 import { BusinessError, diffChanges, logActivity, type Db, type Tx } from "./shared";
 
 const asKey = (d: Date | null | undefined) => (d ? dateOnlyKey(d) : null);
@@ -294,8 +295,29 @@ export async function runDailyWork(db: Db, today = todayKey()) {
     }
     await refreshProject(db, p.id, today);
   }
+  const renewalOffers = await draftRenewalOffers(db, today);
   const invoices = await runInvoiceJob(db, today);
-  return { projects: projects.length, renewed, monthsCreated, invoiceDrafts: invoices.drafts, overdueInvoices: invoices.overdue };
+  return { projects: projects.length, renewed, monthsCreated, renewalOffers, invoiceDrafts: invoices.drafts, overdueInvoices: invoices.overdue };
+}
+
+/**
+ * Retainers ending within your "retainer ending" warning period (Settings, default 30 days) get a
+ * draft renewal offer, once per period. Returns how many were made.
+ */
+export async function draftRenewalOffers(db: Db, today = todayKey()) {
+  const settings = await db.settings.findUniqueOrThrow({ where: { id: "agency" }, select: { retainerEndingDays: true } });
+  const ending = await db.project.findMany({
+    where: {
+      archivedAt: null, status: "ACTIVE", isRetainer: true, autoRenew: false,
+      retainerEnd: { gte: keyToDate(today), lte: keyToDate(addDaysKey(today, settings.retainerEndingDays)) },
+    },
+    select: { id: true },
+  });
+  let made = 0;
+  for (const p of ending) {
+    if (await db.$transaction((tx) => createRenewalOfferInTx(tx, p.id, today, null))) made++;
+  }
+  return made;
 }
 
 let lastRun = 0;

@@ -17,6 +17,7 @@ import {
   createRetainerMonthNow,
   decideChangeRequest,
   refreshProject,
+  draftRenewalOffers,
   runDailyWork,
   saveMilestone,
   saveTargetProgress,
@@ -557,5 +558,67 @@ describe("team", () => {
     await expect(updateEmployee(db, admin.id, employee({ email: "phase4-tester@example.com", name: "Tester", role: "EMPLOYEE" }), second.user.id)).rejects.toThrow(/only admin/);
     await updateEmployee(db, second.user.id, employee({ email: "second@example.com", role: "ADMIN" }), admin.id);
     await expect(updateEmployee(db, admin.id, employee({ email: "phase4-tester@example.com", name: "Tester", role: "MANAGER" }), admin.id)).rejects.toThrow(/your own role/);
+  });
+});
+
+describe("renewal offers for ending retainers", () => {
+  const endingSoon = () => retainerProject([retainerItem({ rate: "18000", discountType: "PERCENT", discountValue: "10", deliverables: [{ format: "REEL", qtyPerMonth: 4 }] })], { retainerEnd: addDaysKey(TODAY, 20), createTasks: false });
+  const renewalOf = (projectId: string) => db.offer.findMany({ where: { renewalOfProjectId: projectId }, include: { items: true } });
+
+  it("drafts one renewal offer copying the monthly services, prices and package, and tells you", async () => {
+    const p = await endingSoon();
+    expect(await draftRenewalOffers(db, TODAY)).toBe(1);
+
+    const [offer] = await renewalOf(p.id);
+    const project = await db.project.findUniqueOrThrow({ where: { id: p.id } });
+    expect(offer).toMatchObject({ status: "DRAFT", clientId: p.clientId, leadId: null, title: "Renewal: My project" });
+    expect(offer.number).toMatch(/\/QT\//);
+    expect(offer.notes).toContain(project.code);
+    expect(offer.items).toHaveLength(1);
+    expect(offer.items[0]).toMatchObject({ billingType: "MONTHLY_RETAINER", unit: "month", discountType: "PERCENT" });
+    expect(offer.items[0].rate.toString()).toBe("18000");
+    expect(offer.items[0].discountValue.toString()).toBe("10");
+    expect(offer.items[0].deliverables).toEqual([{ format: "REEL", qtyPerMonth: 4 }]);
+    expect(offer.taxableTotal.toString()).toBe("16200");
+    expect(await db.notification.count({ where: { userId: admin.id, title: "Renewal offer ready to review", href: `/offers/${offer.id}` } })).toBe(1);
+    expect(await db.activityLog.count({ where: { action: "offer.renewal_drafted", entityId: offer.id } })).toBe(1);
+  });
+
+  it("is made once per period, even if you discard the draft", async () => {
+    const p = await endingSoon();
+    await draftRenewalOffers(db, TODAY);
+    expect(await draftRenewalOffers(db, TODAY)).toBe(0);
+    const [offer] = await renewalOf(p.id);
+    await db.offer.update({ where: { id: offer.id }, data: { archivedAt: new Date() } });
+    expect(await draftRenewalOffers(db, addDaysKey(TODAY, 1))).toBe(0);
+    expect(await renewalOf(p.id)).toHaveLength(1);
+  });
+
+  it("a new period (dates extended) gets its own renewal offer", async () => {
+    const p = await endingSoon();
+    await draftRenewalOffers(db, TODAY);
+    await db.project.update({ where: { id: p.id }, data: { retainerEnd: new Date(`${addDaysKey(TODAY, 25)}T00:00:00Z`) } });
+    expect(await draftRenewalOffers(db, TODAY)).toBe(1);
+    expect(await renewalOf(p.id)).toHaveLength(2);
+  });
+
+  it("skips auto-renew retainers, retainers ending later, and paused projects", async () => {
+    const auto = await retainerProject([retainerItem()], { retainerEnd: addDaysKey(TODAY, 20), autoRenew: true, createTasks: false });
+    const later = await retainerProject([retainerItem()], { retainerEnd: addDaysKey(TODAY, 90), createTasks: false });
+    const paused = await endingSoon();
+    await db.project.update({ where: { id: paused.id }, data: { status: "ON_HOLD" } });
+    expect(await draftRenewalOffers(db, TODAY)).toBe(0);
+    for (const p of [auto, later, paused]) expect(await renewalOf(p.id)).toHaveLength(0);
+  });
+
+  it("runs as part of the daily job", async () => {
+    // No content package, so the daily job's retainer month adds no calendar items for other test files to trip over
+    await retainerProject([retainerItem()], { retainerEnd: addDaysKey(TODAY, 20), createTasks: false });
+    try {
+      expect((await runDailyWork(db, TODAY)).renewalOffers).toBe(1);
+      expect((await runDailyWork(db, TODAY)).renewalOffers).toBe(0);
+    } finally {
+      await db.contentCalendarItem.deleteMany();
+    }
   });
 });

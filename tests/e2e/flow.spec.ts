@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { login } from "./helpers";
 
 /**
@@ -6,14 +6,14 @@ import { login } from "./helpers";
  * Batch A: login → create lead → create offer (pre-filled from the lead) → send →
  * client accepts via the public link → the lead is Won and a client exists.
  * Batch B: convert to project → tasks created → mark a task done.
- * Batch C extends it: invoice → payment → dashboard.
+ * Batch C: create & issue the retainer month's invoice → record a payment → dashboard updates.
  */
 const LEAD_PAGE = /\/leads\/(?!new$)[a-z0-9]+$/;
 const OFFER_PAGE = /\/offers\/(?!new$|templates)[a-z0-9]+$/;
 const PROJECT_PAGE = /\/projects\/[a-z0-9]{20,}$/;
 
-test("connected flow: lead → offer → accepted → client → project → tasks", async ({ page, browser }) => {
-  test.setTimeout(180_000);
+test("connected flow: lead → offer → accepted → client → project → tasks → invoice → payment → dashboard", async ({ page, browser }) => {
+  test.setTimeout(240_000);
   const seed = `${Date.now()}`.slice(-9);
   const company = `Flow Co ${seed}`;
   await login(page);
@@ -93,4 +93,71 @@ test("connected flow: lead → offer → accepted → client → project → tas
   // 8. The onboarding checklist came across from the offer to the project
   await page.goto(projectUrl);
   await expect(page.getByText(/Onboarding/i).first()).toBeVisible();
+
+  // 9–11. Invoice this month of the retainer, issue it, take a part payment, see the dashboard move.
+  // Issuing a GST tax invoice needs your GSTIN (D-63); a sample one is used and the old value put back after.
+  const previousGstin = await readGstin(page);
+  if (!previousGstin) await setGstin(page, "27ABCDE1234F1Z5");
+  try {
+    await page.goto("/dashboard");
+    await expect(outstanding(page)).toBeVisible();
+    const before = await outstanding(page).innerText();
+
+    await page.goto(`${projectUrl}?tab=deliverables`);
+    await page.getByRole("button", { name: /^Invoice / }).click();
+    await expect(page).toHaveURL(INVOICE_PAGE);
+    const invoiceUrl = page.url();
+    await expect(page.getByText(company).first()).toBeVisible();
+
+    // The seed leaves SAC codes blank, so the draft lists them; fill them in (after the page has fully loaded)
+    const problems = page.getByTestId("issue-problems");
+    await expect(page.getByRole("button", { name: "Issue", exact: true }).or(problems)).toBeVisible();
+    if (await problems.filter({ hasText: "SAC code" }).count()) {
+      await page.getByRole("link", { name: "Edit", exact: true }).click();
+      const sacFields = page.getByLabel("SAC code");
+      await expect(sacFields.first()).toBeVisible();
+      for (let i = 0; i < (await sacFields.count()); i++) await sacFields.nth(i).fill(SAC);
+      await page.getByRole("button", { name: "Save draft" }).click();
+      await expect(page).toHaveURL(invoiceUrl);
+    }
+    await page.getByRole("button", { name: "Issue", exact: true }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Issue invoice" }).click();
+    await expect(page.getByRole("heading", { name: /^REZ\/INV\// })).toBeVisible();
+
+    await page.getByRole("link", { name: "Record payment" }).click();
+    await page.getByLabel(/Amount received/).fill("10000");
+    await page.getByRole("button", { name: "Fill oldest first" }).click();
+    await page.getByLabel("Reference no.").fill(`UTR${seed}`);
+    await page.getByRole("button", { name: "Save payment" }).click();
+    await expect(page).toHaveURL(/\/payments\/[a-z0-9]{20,}$/);
+
+    await page.goto(invoiceUrl);
+    await expect(page.getByText("Partially Paid").first()).toBeVisible();
+
+    await page.goto("/dashboard");
+    await expect(outstanding(page)).not.toHaveText(before);
+  } finally {
+    if (!previousGstin) await setGstin(page, "");
+  }
 });
+
+const INVOICE_PAGE = /\/invoices\/[a-z0-9]{20,}$/;
+const SAC = "998361";
+const outstanding = (page: Page) => page.locator('[data-slot="card"]', { hasText: "Total outstanding" }).first();
+
+async function readGstin(page: Page) {
+  await page.goto("/settings");
+  await page.getByRole("tab", { name: /GST/ }).click();
+  return page.getByLabel("GSTIN").inputValue();
+}
+
+async function setGstin(page: Page, value: string) {
+  await page.goto("/settings");
+  await page.getByRole("tab", { name: /GST/ }).click();
+  await page.getByLabel("GSTIN").fill(value);
+  const save = page.getByRole("button", { name: "Save settings" });
+  if (await save.isEnabled()) {
+    await save.click();
+    await expect(page.getByText(/saved/i).first()).toBeVisible();
+  }
+}

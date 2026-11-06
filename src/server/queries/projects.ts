@@ -91,6 +91,7 @@ export function getProjectHeader(id: string, viewer: Viewer) {
       client: { select: { id: true, companyName: true } },
       manager: { select: { name: true } },
       offer: { select: { id: true, number: true } },
+      renewalOffers: { where: { archivedAt: null }, orderBy: { createdAt: "desc" }, take: 3, select: { id: true, number: true, status: true } },
       services: { where: { isActive: true }, include: { service: { select: { name: true } } } },
       onboarding: { include: { items: { orderBy: { sortOrder: "asc" } } } },
     },

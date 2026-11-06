@@ -517,3 +517,17 @@ gets a notification linking to it. A task comment can now have no author for thi
 with a ₹0 estimate and billable set, linked to the client, project and deliverable. You set the price and approve or reject it; only an
 approved one can be added to an invoice. A revision counted by hand on a task still only suggests a change request, since there's no
 client comment to record.
+
+### D-96 Ending retainers get a draft renewal offer
+The daily job makes a draft offer for each active retainer ending within the "retainer ending" warning period in Settings (default
+30 days, the same window as its alert). It's addressed to the client and copies the project's active monthly services: description,
+quantity, rate, discount, GST rate, SAC code and package, for the same number of months as the period now ending (or the original
+offer's duration). Validity, terms and payment terms come from your settings and the original offer. It gets its quotation number
+at creation, as every offer does (D-26), and is never sent by itself.
+- **Once per period.** A run key per project and end date (in the same `InvoiceRun` table used for the monthly and renewal invoice
+  drafts) makes it once, even if you discard the draft. When the dates are extended, the next period gets its own.
+- **Skipped**: auto-renew retainers (they continue by themselves, D-35), paused or archived projects, archived clients, and projects
+  with no active monthly service.
+- **Traceable**: `Offer.renewalOfProjectId` links the draft to its project. The project's overview lists its renewal offers, and the
+  "retainer ending" alert opens the draft and shows its status instead of saying "send renewal offer".
+

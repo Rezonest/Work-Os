@@ -18,7 +18,7 @@ import { effectiveHealth } from "@/lib/health";
 import { param, type SearchParams } from "@/lib/list-params";
 import { formatINR } from "@/lib/money/format";
 import { can } from "@/lib/permissions";
-import { humanize } from "@/lib/status";
+import { humanize, statusDef } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import { labelForFormat } from "@/lib/work-plan";
 import { setProjectArchivedAction } from "@/server/actions/work";
@@ -174,6 +174,16 @@ async function Overview({ project, viewer, showMoney, canManage }: { project: He
             <dl className="divide-y">
               <Row label="Client">{canManage ? <Link href={`/clients/${project.client.id}`} className="underline">{project.client.companyName}</Link> : project.client.companyName}</Row>
               {canManage && <Row label="Offer">{project.offer && <Link href={`/offers/${project.offer.id}`} className="underline">{project.offer.number}</Link>}</Row>}
+              {canManage && project.renewalOffers.length > 0 && (
+                <Row label="Renewal offer">
+                  {project.renewalOffers.map((o, i) => (
+                    <span key={o.id}>
+                      {i > 0 && ", "}
+                      <Link href={`/offers/${o.id}`} className="underline">{o.number}</Link> ({statusDef("offer", o.status).label})
+                    </span>
+                  ))}
+                </Row>
+              )}
               <Row label="Manager">{project.manager?.name}</Row>
               <Row label="Started">{formatDateKey(project.startDate)}</Row>
               <Row label="Deadline">{project.deadline ? formatDateKey(project.deadline) : null}</Row>

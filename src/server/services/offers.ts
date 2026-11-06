@@ -1,13 +1,13 @@
 import crypto from "node:crypto";
 import type { Prisma } from "@prisma/client";
-import { dateOnlyKey, addDaysKey, keyToDate, todayKey } from "@/lib/dates";
+import { dateOnlyKey, addDaysKey, formatDateKey, keyToDate, todayKey } from "@/lib/dates";
 import { computeTotals, determineTaxMode, type TaxMode } from "@/lib/money/gst";
 import { stateName } from "@/lib/india-states";
 import { nextDocNumber } from "@/lib/numbering";
 import { buildOfferDocument, type OfferDocInput } from "@/lib/offer-document";
 import { canEdit, canRevise, isOpen, publicResponseError, statusChangeError } from "@/lib/offer-status";
 import { hashPublicToken, looksLikeToken, publicToken } from "@/lib/public-token";
-import type { OfferData, TemplateData } from "@/lib/validators/offer";
+import { offerSchema, type OfferData, type TemplateData } from "@/lib/validators/offer";
 import { autoConvertLeadForOffer, markLeadLostForRejectedOffer, type AutoConversion } from "./leads";
 import { ensureOfferOnboarding } from "./onboarding";
 import { BusinessError, logActivity, type Db, type Tx } from "./shared";
@@ -86,30 +86,96 @@ async function assertRecipient(tx: Tx, d: OfferData) {
 }
 
 export async function createOffer(db: Db, data: OfferData, actorId: string, duplicatedFromId?: string) {
-  return db.$transaction(async (tx) => {
-    const { clientId, leadId } = await assertRecipient(tx, data);
-    const tax = await resolveTax(tx, { clientId, gstEnabled: data.gstEnabled, supplyStateCode: data.supplyStateCode });
-    const { columns, itemRows } = computed(data.items, tax.taxMode);
-    const number = await nextDocNumber(tx, "QUOTATION", data.offerDate);
-    const offer = await tx.offer.create({
-      data: {
-        ...commonColumns(data),
-        ...columns,
-        ...tax,
-        number,
-        clientId,
-        leadId,
-        status: "DRAFT",
-        duplicatedFromId,
-        createdById: actorId,
-        items: { create: itemRows },
-        milestones: { create: milestoneRows(data.milestones) },
-        statusHistory: { create: { toStatus: "DRAFT", changedById: actorId } },
-      },
-    });
-    await logActivity(tx, { actorId, action: duplicatedFromId ? "offer.duplicated" : "offer.created", entityType: "Offer", entityId: offer.id, clientId, changes: { number } });
-    return offer;
+  return db.$transaction((tx) => createOfferInTx(tx, data, actorId, { duplicatedFromId }));
+}
+
+/** Creates a draft offer with its number. Runs inside the caller's transaction. */
+export async function createOfferInTx(tx: Tx, data: OfferData, actorId: string | null, extra: { duplicatedFromId?: string; renewalOfProjectId?: string } = {}) {
+  const { duplicatedFromId, renewalOfProjectId } = extra;
+  const { clientId, leadId } = await assertRecipient(tx, data);
+  const tax = await resolveTax(tx, { clientId, gstEnabled: data.gstEnabled, supplyStateCode: data.supplyStateCode });
+  const { columns, itemRows } = computed(data.items, tax.taxMode);
+  const number = await nextDocNumber(tx, "QUOTATION", data.offerDate);
+  const offer = await tx.offer.create({
+    data: {
+      ...commonColumns(data),
+      ...columns,
+      ...tax,
+      number,
+      clientId,
+      leadId,
+      status: "DRAFT",
+      duplicatedFromId,
+      renewalOfProjectId,
+      createdById: actorId,
+      items: { create: itemRows },
+      milestones: { create: milestoneRows(data.milestones) },
+      statusHistory: { create: { toStatus: "DRAFT", changedById: actorId } },
+    },
   });
+  const action = renewalOfProjectId ? "offer.renewal_drafted" : duplicatedFromId ? "offer.duplicated" : "offer.created";
+  await logActivity(tx, { actorId, action, entityType: "Offer", entityId: offer.id, clientId, changes: { number } });
+  return offer;
+}
+
+/**
+ * A draft renewal offer for a retainer that's ending (link 12 of the flow). It copies the project's
+ * monthly services, prices, discounts, GST and package, for the same length as the period now ending.
+ * Made once per retainer period, using a run key, so a draft you discard isn't made again; a later
+ * period (after the dates are extended) gets its own. Auto-renew retainers are skipped, since they
+ * continue by themselves. Never sent: you review and send it.
+ */
+export async function createRenewalOfferInTx(tx: Tx, projectId: string, today: string, actorId: string | null) {
+  const project = await tx.project.findUnique({
+    where: { id: projectId },
+    include: {
+      client: { select: { archivedAt: true } },
+      offer: { select: { taxMode: true, paymentTerms: true, durationMonths: true } },
+      services: { where: { isActive: true, billingType: "MONTHLY_RETAINER" }, include: { service: { select: { name: true, sacCode: true } } }, orderBy: { id: "asc" } },
+    },
+  });
+  if (!project || !project.isRetainer || project.status !== "ACTIVE" || project.archivedAt || project.autoRenew) return null;
+  if (!project.retainerEnd || !project.retainerStart || project.client.archivedAt || !project.services.length) return null;
+  const endKey = dateOnlyKey(project.retainerEnd);
+  if (endKey < today) return null;
+
+  const { count } = await tx.invoiceRun.createMany({ data: [{ key: `renewal-offer:${projectId}:${endKey}` }], skipDuplicates: true });
+  if (!count) return null;
+
+  const settings = await tx.settings.findUniqueOrThrow({ where: { id: "agency" } });
+  const days = Math.round((keyToDate(endKey).getTime() - project.retainerStart.getTime()) / 86_400_000) + 1;
+  const months = Math.min(120, Math.max(1, project.offer?.durationMonths ?? Math.round(days / 30.44)));
+  const data = offerSchema.parse({
+    clientId: project.clientId,
+    title: `Renewal: ${project.name}`.slice(0, 200),
+    offerDate: today,
+    validUntil: addDaysKey(today, settings.offerValidityDays),
+    durationMonths: months,
+    paymentTerms: project.offer?.paymentTerms ?? "",
+    terms: settings.quotationTerms ?? "",
+    notes: `Renewal of ${project.code} ${project.name}. The current period ends on ${formatDateKey(endKey)}.`,
+    gstEnabled: project.offer ? project.offer.taxMode !== "NO_GST" : settings.gstEnabledByDefault,
+    supplyStateCode: "",
+    milestones: [],
+    items: project.services.map((ps) => ({
+      serviceId: ps.serviceId,
+      subServiceId: ps.subServiceId ?? "",
+      description: ps.description ?? ps.service.name,
+      billingType: "MONTHLY_RETAINER",
+      quantity: ps.quantity.toString(),
+      unit: "month",
+      rate: ps.rate.toString(),
+      discountType: ps.discountType ?? "",
+      discountValue: ps.discountValue.toString(),
+      gstRate: ps.gstRate.toString(),
+      sacCode: ps.service.sacCode ?? "",
+      durationMonths: months,
+      deliverables: (ps.deliverables as { format: string; qtyPerMonth: number }[] | null) ?? [],
+    })),
+  });
+  const offer = await createOfferInTx(tx, data, actorId, { renewalOfProjectId: projectId });
+  await notifyTeam(tx, { title: "Renewal offer ready to review", body: `${project.name} ends on ${formatDateKey(endKey)}. Check the draft ${offer.number} and send it.`, href: `/offers/${offer.id}` });
+  return offer;
 }
 
 export async function updateDraftOffer(db: Db, id: string, data: OfferData, actorId: string) {

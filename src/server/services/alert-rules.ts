@@ -101,7 +101,10 @@ export async function collectAlerts(db: Db, scope: AlertScope, opts: { money: bo
     }),
     db.project.findMany({
       where: { ...scope.projectWhere, status: "ACTIVE", isRetainer: true, retainerEnd: { gte: today, lte: keyToDate(addDaysKey(T, s.retainerEndingDays)) } },
-      select: { id: true, name: true, retainerEnd: true, autoRenew: true, client: { select: { companyName: true } } },
+      select: {
+        id: true, name: true, retainerEnd: true, autoRenew: true, client: { select: { companyName: true } },
+        renewalOffers: { where: { archivedAt: null, status: { in: ["DRAFT", "SENT", "ON_HOLD", "ACCEPTED"] } }, orderBy: { createdAt: "desc" }, take: 1, select: { id: true, number: true, status: true } },
+      },
     }),
     db.project.findMany({
       where: { ...scope.projectWhere, status: "ACTIVE", deadline: { lte: keyToDate(addDaysKey(T, 7)) } },
@@ -252,11 +255,13 @@ export async function collectAlerts(db: Db, scope: AlertScope, opts: { money: bo
   }
   for (const p of retainers) {
     const endKey = dateOnlyKey(p.retainerEnd!);
+    const renewal = p.renewalOffers[0];
     const days = daysBetweenKeys(T, endKey);
     alerts.push({
       key: `RETAINER_ENDING:${p.id}:${endKey}`, type: "RETAINER_ENDING", category: "retainer", severity: days <= 7 ? "WARNING" : "INFO",
-      title: `${p.name} ends in ${plural(days)}`, detail: `${p.client.companyName} · ${formatDateKey(endKey)}${p.autoRenew ? " · auto-renew on" : " · send renewal offer"}`,
-      href: `/projects/${p.id}`, entityType: "Project", entityId: p.id, dateKey: endKey,
+      title: `${p.name} ends in ${plural(days)}`,
+      detail: `${p.client.companyName} · ${formatDateKey(endKey)}${p.autoRenew ? " · auto-renew on" : renewal ? ` · renewal offer ${renewal.number} (${renewal.status === "DRAFT" ? "draft, not sent yet" : renewal.status.toLowerCase().replace("_", " ")})` : " · send renewal offer"}`,
+      href: renewal ? `/offers/${renewal.id}` : `/projects/${p.id}`, entityType: "Project", entityId: p.id, dateKey: endKey,
     });
   }
   for (const p of deadlines) {

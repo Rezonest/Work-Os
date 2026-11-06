@@ -361,6 +361,21 @@ partly. The fixes are done in batches by the phase they belong to.
 - **Tests**: 4 new integration tests (in tests/integration/phase5-delivery.test.ts); the full-chain browser test now continues to
   convert to project → tasks → mark a task done.
 
-### Still to do (later batches)
-- **Batch C (Phase 6/7, renewals)**: a draft renewal offer 30 days before a retainer ends, made once per period. Needs one schema
-  change (`Offer.renewalOfProjectId`). The browser test is extended to project → tasks → invoice → payment → dashboard.
+### Batch C: renewal offers, and the full chain tested ✅ (06 Nov 2026)
+- **Draft renewal offer for ending retainers.** Within the retainer-ending window (default 30 days), the daily job drafts an offer
+  copying the project's monthly services, prices, discounts and package, once per period, never sent automatically (D-96).
+  Auto-renew retainers are skipped.
+- The **"retainer ending" alert** opens the draft and shows its status; the **project overview** lists its renewal offers.
+- **Database**: one change, `Offer.renewalOfProjectId` (migration `20261106084343_flow_renewal_offers`). Nothing is removed.
+- **Tests**: 5 new integration tests (renewal drafts, once per period, skips, daily job). The full-chain browser test now runs the
+  whole journey: login → lead → offer → send → client accepts → client created → project → tasks → task done → invoice issued →
+  payment → dashboard outstanding changes.
+
+### Result
+All 14 links of the journey are now connected, and the status rules hold. What stays manual, on purpose: sending an offer, Convert to
+Project, issuing an invoice, and payment reminders.
+
+### Known issues / limitations (connected flow)
+- A client made automatically has no GSTIN or address; GST tax invoices stay blocked for them until you add these (D-63).
+- The full-chain browser test needs a GSTIN to issue the invoice. If yours is empty it uses a sample one and puts the blank back after.
+- The Phase 10 browser test that creates test logins only runs on a database whose name contains "e2e", by design.
