@@ -47,15 +47,44 @@ export function offerToFormValues(o: OfferWithLines): OfferFormValues {
   };
 }
 
-/** A new offer: today's date, your default validity, GST and terms, optionally started from a template. */
-export function newOfferValues(options: OfferFormOptions, opts: { clientId?: string; leadId?: string; template?: OfferWithLines | null }): OfferFormValues {
+/** Draft lines from a lead's "services interested", each with that service's catalogue defaults. */
+export function leadServiceItems(options: OfferFormOptions, serviceIds: string[]): OfferFormValues["items"] {
+  return serviceIds
+    .map((id) => options.services.find((s) => s.id === id))
+    .filter((s): s is OfferFormOptions["services"][number] => !!s)
+    .map((s) => ({
+      serviceId: s.id,
+      subServiceId: "",
+      description: s.name,
+      billingType: s.billingType,
+      quantity: "1",
+      unit: s.unit,
+      rate: s.price,
+      discountType: "",
+      discountValue: "",
+      gstRate: s.gstRate,
+      sacCode: s.sacCode,
+      durationMonths: "",
+      deliverables: CONTENT_FORMATS.map((format) => ({ format, qtyPerMonth: 0 })),
+    }));
+}
+
+/**
+ * A new offer: today's date, your default validity, GST and terms, optionally started from a template.
+ * Started from a lead (and no template), the lead's services interested become the first draft lines.
+ */
+export function newOfferValues(
+  options: OfferFormOptions,
+  opts: { clientId?: string; leadId?: string; template?: OfferWithLines | null; lead?: { name: string; serviceIds: string[] } | null },
+): OfferFormValues {
   const today = todayKey();
   const base = opts.template ? offerToFormValues(opts.template) : null;
+  const fromLead = !base && opts.lead ? leadServiceItems(options, opts.lead.serviceIds) : [];
   return {
     clientId: opts.clientId ?? "",
     leadId: opts.leadId ?? "",
     templateName: "",
-    title: base?.title ?? "",
+    title: base?.title ?? (opts.lead ? `Proposal for ${opts.lead.name}` : ""),
     offerDate: today,
     validUntil: addDaysKey(today, options.validityDays),
     durationMonths: base?.durationMonths ?? "",
@@ -64,7 +93,7 @@ export function newOfferValues(options: OfferFormOptions, opts: { clientId?: str
     notes: base?.notes ?? "",
     gstEnabled: base?.gstEnabled ?? options.gstOnByDefault,
     supplyStateCode: options.agencyStateCode,
-    items: base?.items ?? [],
+    items: base?.items ?? fromLead,
     milestones: base?.milestones ?? [],
   };
 }

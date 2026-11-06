@@ -8,6 +8,7 @@ import { buildOfferDocument, type OfferDocInput } from "@/lib/offer-document";
 import { canEdit, canRevise, isOpen, publicResponseError, statusChangeError } from "@/lib/offer-status";
 import { hashPublicToken, looksLikeToken, publicToken } from "@/lib/public-token";
 import type { OfferData, TemplateData } from "@/lib/validators/offer";
+import { autoConvertLeadForOffer, markLeadLostForRejectedOffer, type AutoConversion } from "./leads";
 import { ensureOfferOnboarding } from "./onboarding";
 import { BusinessError, logActivity, type Db, type Tx } from "./shared";
 
@@ -228,7 +229,19 @@ export async function ensureOfferLink(db: Db | Tx, offerId: string, actorId: str
 }
 
 async function revokeLinks(tx: Tx, offerId: string) {
-  await tx.publicLink.updateMany({ where: { offerId, revokedAt: null }, data: { revokedAt: new Date() } });
+  return (await tx.publicLink.updateMany({ where: { offerId, revokedAt: null }, data: { revokedAt: new Date() } })).count;
+}
+
+/** Stops the client link working at once (for example, sent to the wrong person). Sharing again makes a new link. */
+export async function revokeOfferLinks(db: Db, offerId: string, actorId: string) {
+  return db.$transaction(async (tx) => {
+    const offer = await tx.offer.findUnique({ where: { id: offerId } });
+    if (!offer || offer.isTemplate) throw new BusinessError("This offer no longer exists.");
+    const count = await revokeLinks(tx, offerId);
+    if (!count) throw new BusinessError("There's no active client link to revoke.");
+    await logActivity(tx, { actorId, action: "offer.link_revoked", entityType: "Offer", entityId: offerId, clientId: offer.clientId, changes: { links: count } });
+    return count;
+  });
 }
 
 /** Prepares a draft for sending: fresh tax and a link, without changing its status. */
@@ -323,8 +336,6 @@ export async function changeOfferStatus(
       },
     });
     if (!count) throw new BusinessError("This offer was just changed by someone else. Please reload.");
-    if (input.to === "REJECTED") await revokeLinks(tx, offer.id);
-    if (input.to === "ACCEPTED") await ensureOfferOnboarding(tx, offer.id);
     await tx.offerStatusHistory.create({
       data: { offerId: offer.id, fromStatus: offer.status, toStatus: input.to, note: input.reason ?? (input.acceptedByName ? `Accepted by ${input.acceptedByName}` : null), changedById: input.actorId },
     });
@@ -332,6 +343,17 @@ export async function changeOfferStatus(
       actorId: input.actorId, action: "offer.status_changed", entityType: "Offer", entityId: offer.id, clientId: offer.clientId,
       changes: { status: { from: offer.status, to: input.to } },
     });
+    let conversion: AutoConversion = { result: "none" };
+    if (input.to === "REJECTED") {
+      await revokeLinks(tx, offer.id);
+      await markLeadLostForRejectedOffer(tx, offer.id, input.reason ?? "Offer rejected", input.actorId);
+    }
+    if (input.to === "ACCEPTED") {
+      conversion = await autoConvertLeadForOffer(tx, offer.id, input.actorId);
+      await ensureOfferOnboarding(tx, offer.id);
+      await notifyConversion(tx, offer, conversion);
+    }
+    return { conversion };
   });
 }
 
@@ -486,6 +508,17 @@ async function notifyTeam(tx: Tx, input: { title: string; body: string; href: st
   await tx.notification.createMany({ data: admins.map((a) => ({ userId: a.id, ...input })) });
 }
 
+/** Tells you what happened to the lead when its offer was accepted. */
+async function notifyConversion(tx: Tx, offer: { id: string; number: string; leadId: string | null }, c: AutoConversion) {
+  if (c.result === "created") {
+    await notifyTeam(tx, { title: `New client: ${c.clientName}`, body: `Created from the lead when offer ${offer.number} was accepted. Add their GSTIN and address before invoicing.`, href: `/clients/${c.clientId}` });
+  } else if (c.result === "linked") {
+    await notifyTeam(tx, { title: `Lead linked to ${c.clientName}`, body: `Offer ${offer.number} was accepted. The lead matched this existing client, so no duplicate was made.`, href: `/clients/${c.clientId}` });
+  } else if (c.result === "needs_review" && offer.leadId) {
+    await notifyTeam(tx, { title: `Convert the lead for ${offer.number} by hand`, body: `The offer was accepted but the lead wasn't converted automatically: ${c.reason}.`, href: `/leads/${offer.leadId}/convert` });
+  }
+}
+
 async function respondableOffer(tx: Tx, token: string) {
   const link = await findOfferLink(tx, token);
   if (!link) throw new BusinessError("This link is not valid.");
@@ -514,8 +547,10 @@ export async function acceptOfferViaLink(db: Db, input: { token: string; name: s
       actorId: null, action: "offer.accepted", entityType: "Offer", entityId: offer.id, clientId: offer.clientId,
       changes: { status: { from: offer.status, to: "ACCEPTED" }, by: input.name, version: offer.currentVersion },
     });
+    const conversion = await autoConvertLeadForOffer(tx, offer.id, null);
     await ensureOfferOnboarding(tx, offer.id);
     await notifyTeam(tx, { title: `Offer ${offer.number} accepted`, body: `${input.name} accepted “${offer.title}”.`, href: `/offers/${offer.id}` });
+    await notifyConversion(tx, offer, conversion);
     return offer;
   });
 }

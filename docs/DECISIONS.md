@@ -124,6 +124,7 @@ server repeats it at save time.
 
 ### D-19 Won only through conversion
 A lead can't be set to Won by hand, so every Won lead has a client. Converted leads stay Won.
+Since the connected-flow work, accepting an offer converts its lead automatically (D-91), still through the same conversion, so this rule holds.
 
 ### D-20 GST details are rejected rather than guessed
 A GSTIN must match the selected state, and a PAN must match the GSTIN. Clients abroad use state
@@ -482,3 +483,25 @@ PDF fonts or scripts behaves differently from what's been tested. The go-live ch
 ### D-90 Jobs run hourly on the server
 All four are safe to repeat, so one small container calls them all every hour, and the daily ones do nothing once that day's work is
 done. That's fewer moving parts than a separate schedule for each, and a job missed for any reason catches up within the hour.
+
+### D-91 An accepted offer turns its lead into a client (owner's decision A)
+Whether you mark it accepted or the client accepts through the link, the lead is converted in the same save. If no existing client
+shares the lead's phone or email, a new client is made from the lead, with the state chosen on the offer so GST stays as quoted.
+If exactly one active client matches, the lead is linked to it instead of making a duplicate. If several match, an archived client
+matches, or the lead's details aren't valid for a client, nothing is guessed: the offer is still accepted, the lead stays as it was,
+and you get a notification to convert it by hand. Leads have no GSTIN, so the automatic check uses phone and email. The new client
+has no GSTIN or address yet, and the notification reminds you to add them before invoicing. This replaces the manual-only part of D-19.
+
+### D-92 A rejected offer can close its lead
+When you reject an offer, its lead becomes Lost with the same reason, but only if that lead has no other offer still open (Draft,
+Sent or On Hold, not archived). Converted, Won and already-Lost leads aren't touched. Expired offers don't close the lead, because
+an expired offer often just needs resending.
+
+### D-93 Offer links can be revoked by hand
+The Share dialog has "Revoke link". It stops every active link for that offer at once and is logged. Sharing again makes a new link
+with a new address, so a link sent to the wrong person can be replaced.
+
+### D-94 A new offer from a lead starts with the lead's services
+"New offer" on a lead fills in the title ("Proposal for …") and one line per service the lead is interested in, at that service's
+catalogue price, unit, GST rate and SAC code. These are drafts: you set quantities and prices before saving. Choosing a template
+instead starts from the template, as before.

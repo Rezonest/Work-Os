@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Archive, ArchiveRestore, CalendarClock, Check, ClipboardCopy, Copy, Download, GitBranch, LayoutTemplate, Loader2, Mail, MoreHorizontal, Pause, Pencil, Play, Send, Share2, X } from "lucide-react";
+import { Archive, ArchiveRestore, CalendarClock, Check, ClipboardCopy, Copy, Download, GitBranch, LayoutTemplate, Link2Off, Loader2, Mail, MoreHorizontal, Pause, Pencil, Play, Send, Share2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -21,6 +21,7 @@ import {
   getShareLinkAction,
   offerToTemplateAction,
   reviseOfferAction,
+  revokeOfferLinkAction,
   sendOfferAction,
   setFollowUpAction,
   setOfferArchivedAction,
@@ -201,6 +202,19 @@ export function OfferActions({
           </DialogHeader>
           <Input readOnly value={share?.link ?? ""} aria-label="Client link" onFocus={(e) => e.target.select()} data-testid="client-link" />
           <DialogFooter>
+            <ConfirmButton
+              label="Revoke link"
+              icon={<Link2Off />}
+              variant="ghost"
+              title="Revoke this link?"
+              description="The link stops working straight away, including any copy already sent. Share again to get a new link."
+              confirmLabel="Revoke"
+              action={async () => {
+                const res = await revokeOfferLinkAction(id);
+                if (res.ok) setPanel(null);
+                return res;
+              }}
+            />
             <Button
               variant="outline"
               onClick={() => {

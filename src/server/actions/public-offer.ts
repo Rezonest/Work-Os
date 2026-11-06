@@ -43,6 +43,8 @@ export async function acceptOfferAction(input: { token: string; name: string; ag
     );
     revalidatePath(`/p/offer/${parsed.data.token}`);
     revalidatePath(`/offers/${offer.id}`);
+    revalidatePath("/leads");
+    revalidatePath("/clients");
     return { ok: true };
   });
 }
@@ -59,6 +61,8 @@ export async function requestChangesAction(input: { token: string; name: string;
     );
     revalidatePath(`/p/offer/${parsed.data.token}`);
     revalidatePath(`/offers/${offer.id}`);
+    revalidatePath("/leads");
+    revalidatePath("/clients");
     return { ok: true };
   });
 }

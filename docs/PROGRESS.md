@@ -331,3 +331,28 @@ See `docs/DECISIONS.md` → D-09.
 - Accessibility was checked through labels and keyboard use in tests, not with a full audit or a screen reader.
 - Rate limits live in server memory, so they reset on restart, and each copy counts separately on Vercel.
 - Earlier items still open: your SMTP details, the CA's confirmation of GST questions (D-62, D-70, D-75), and starting the database with Windows on this PC.
+
+## Connected flow: every step starts from the one before
+An audit (06 Nov 2026) checked the 14 links of the journey, from lead to payment, against the built app. 9 were fully connected and 5
+partly. The fixes are done in batches by the phase they belong to.
+
+### Batch A: lead → offer → client ✅ (06 Nov 2026)
+- **New offer from a lead** starts with the title and one line per service the lead is interested in, at catalogue prices (D-94).
+- **Accepting an offer converts its lead into a client automatically**, by you or by the client through the link, with a duplicate
+  check on phone and email. One match links to it; several matches ask you to convert by hand (D-91).
+- **Rejecting an offer marks its lead Lost** with the same reason, if the lead has no other open offer (D-92).
+- **"Revoke link"** in the offer's Share dialog stops the client link at once (D-93).
+- The success message after accepting says what happened to the lead, and you get a notification with a link to the client.
+- **Tests**: 11 new integration tests (tests/integration/flow-sales.test.ts) and the first part of the full-chain browser test
+  (tests/e2e/flow.spec.ts: lead → offer → send → accept → client). Two Phase 4 tests were updated, because they checked the old
+  behaviour (an accepted offer to a lead waiting for a manual convert).
+
+### Known issues / limitations
+- A client made automatically has no GSTIN or address. GST tax invoices stay blocked for them until you add these (D-63).
+- If a lead's phone or email is in an unusual format the client form rejects, it isn't converted automatically; you're told to do it by hand.
+
+### Still to do (later batches)
+- **Batch B (Phase 4/5, delivery)**: the client's comment on content goes onto the task, and running out of included revisions creates
+  a Pending change request automatically. Needs one schema change (a task comment can come from a client with no login).
+- **Batch C (Phase 6/7, renewals)**: a draft renewal offer 30 days before a retainer ends, made once per period. Needs one schema
+  change (`Offer.renewalOfProjectId`). The browser test is extended to project → tasks → invoice → payment → dashboard.

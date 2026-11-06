@@ -14,7 +14,8 @@ export default async function NewOfferPage({ searchParams }: { searchParams: Pro
   await requirePermission("sales.manage");
   const sp = await searchParams;
   const templateId = idParam(sp, "template");
-  const [options, templates, template] = await Promise.all([
+  const leadId = idParam(sp, "lead");
+  const [options, templates, template, lead] = await Promise.all([
     getOfferFormOptions(),
     getTemplates(),
     templateId
@@ -23,7 +24,15 @@ export default async function NewOfferPage({ searchParams }: { searchParams: Pro
           include: { items: { orderBy: { sortOrder: "asc" } }, milestones: { orderBy: { sortOrder: "asc" } } },
         })
       : null,
+    leadId
+      ? db.lead.findFirst({
+          where: { id: leadId, archivedAt: null },
+          select: { id: true, contactName: true, companyName: true, servicesInterested: true, convertedClientId: true },
+        })
+      : null,
   ]);
+  // A converted lead is a client now, so the offer goes to the client (the server does the same).
+  const clientId = lead?.convertedClientId ?? idParam(sp, "client");
   return (
     <div className="mx-auto max-w-4xl space-y-4">
       <PageHeader title="New offer" back={{ href: "/offers", label: "Offers" }} />
@@ -34,7 +43,12 @@ export default async function NewOfferPage({ searchParams }: { searchParams: Pro
         key={templateId ?? "blank"}
         mode={{ kind: "offer", offerId: null }}
         options={options}
-        defaults={newOfferValues(options, { clientId: idParam(sp, "client"), leadId: idParam(sp, "lead"), template })}
+        defaults={newOfferValues(options, {
+          clientId,
+          leadId: lead && !lead.convertedClientId ? lead.id : undefined,
+          template,
+          lead: lead ? { name: lead.companyName || lead.contactName, serviceIds: lead.servicesInterested } : null,
+        })}
       />
     </div>
   );

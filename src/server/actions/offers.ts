@@ -31,6 +31,7 @@ import {
   offerToTemplate,
   prepareForSending,
   reviseOffer,
+  revokeOfferLinks,
   saveTemplate,
   setOfferArchived,
   setOfferFollowUp,
@@ -138,9 +139,25 @@ export async function changeOfferStatusAction(input: OfferStatusInput): Promise<
   return runAction("sales.manage", async (user) => {
     const parsed = offerStatusSchema.safeParse(input);
     if (!parsed.success) return invalid(parsed.error);
-    await changeOfferStatus(db, { ...parsed.data, actorId: user.id });
+    const { conversion } = await changeOfferStatus(db, { ...parsed.data, actorId: user.id });
     refresh(parsed.data.offerId);
-    return { ok: true, message: "Status updated." };
+    revalidatePath("/leads");
+    revalidatePath("/clients");
+    const message =
+      conversion.result === "created" ? `Accepted. ${conversion.clientName} is now a client.`
+      : conversion.result === "linked" ? `Accepted. The lead was linked to your existing client ${conversion.clientName}.`
+      : conversion.result === "needs_review" ? `Accepted. Please convert the lead by hand: ${conversion.reason}.`
+      : parsed.data.to === "REJECTED" ? "Rejected. If the lead had no other open offer, it's now marked Lost."
+      : "Status updated.";
+    return { ok: true, message };
+  });
+}
+
+export async function revokeOfferLinkAction(offerId: string): Promise<ActionResult> {
+  return runAction("sales.manage", async (user) => {
+    await revokeOfferLinks(db, offerId, user.id);
+    refresh(offerId);
+    return { ok: true, message: "Link revoked. The old link no longer works; share again for a new one." };
   });
 }
 

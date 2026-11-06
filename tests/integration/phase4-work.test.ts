@@ -8,7 +8,7 @@ import { offerSchema } from "@/lib/validators/offer";
 import { convertOfferSchema, employeeSchema, taskSchema } from "@/lib/validators/work";
 import { isWorkingDay } from "@/lib/work-plan";
 import { createClient } from "@/server/services/clients";
-import { convertLead, createLead } from "@/server/services/leads";
+import { createLead } from "@/server/services/leads";
 import { acceptOfferViaLink, createOffer, markOfferSent, prepareForSending } from "@/server/services/offers";
 import { addOnboardingItem, ensureOfferOnboarding, saveOnboardingTemplate, setOnboardingItemDone } from "@/server/services/onboarding";
 import {
@@ -159,12 +159,12 @@ describe("onboarding", () => {
     expect(await db.onboardingChecklist.count({ where: { offerId: offer.id } })).toBe(1);
   });
 
-  it("waits for a lead to become a client", async () => {
+  it("starts for a lead's offer as soon as the lead becomes a client on acceptance", async () => {
     const lead = await createLead(db, leadSchema.parse({ contactName: "Lead Person", phone: "9123456780", servicesInterested: [] }), admin.id);
     const offer = await acceptOffer({ leadId: lead.id }, [retainerItem()]);
-    expect(await db.onboardingChecklist.count({ where: { offerId: offer.id } })).toBe(0);
-    await convertLead(db, { leadId: lead.id, actorId: admin.id, client: clientCreateSchema.parse({ companyName: "From Lead", contactName: "Lead Person", country: "India", stateCode: "27", status: "ACTIVE" }) });
-    expect(await db.onboardingChecklist.count({ where: { offerId: offer.id } })).toBe(1);
+    const after = await db.lead.findUniqueOrThrow({ where: { id: lead.id } });
+    expect(after.convertedClientId).toBeTruthy();
+    expect(await db.onboardingChecklist.count({ where: { offerId: offer.id, clientId: after.convertedClientId! } })).toBe(1);
   });
 
   it("moves to the project on conversion, keeping what's done", async () => {
@@ -260,6 +260,10 @@ describe("offer → project", () => {
     const draft = await createOffer(db, offerSchema.parse({ clientId: c.id, title: "Draft", offerDate: TODAY, validUntil: addDaysKey(TODAY, 15), gstEnabled: true, milestones: [], items: [webItem()] }), admin.id);
     await expect(convertOfferToProject(db, convertInput(draft.id), admin.id)).rejects.toThrow(/Only an accepted offer/);
 
+    // Two clients share the lead's phone, so the lead isn't converted automatically on acceptance.
+    for (const name of ["Branch A", "Branch B"]) {
+      await createClient(db, clientCreateSchema.parse({ companyName: name, contactName: "Asha", country: "India", stateCode: "27", status: "ACTIVE", phone: "9123456780" }), admin.id);
+    }
     const lead = await createLead(db, leadSchema.parse({ contactName: "Lead Person", phone: "9123456780", servicesInterested: [] }), admin.id);
     const leadOffer = await acceptOffer({ leadId: lead.id }, [webItem()]);
     await expect(convertOfferToProject(db, convertInput(leadOffer.id), admin.id)).rejects.toThrow(/Convert the lead/);
