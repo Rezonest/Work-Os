@@ -22,6 +22,8 @@ export async function respondToContentAction(input: z.input<typeof contentRespon
     revalidatePath(`/p/content/${parsed.data.token}`);
     revalidatePath("/content");
     revalidatePath(`/content/${parsed.data.itemId}`);
+    revalidatePath("/tasks");
+    revalidatePath("/projects");
     return { ok: true };
   } catch (e) {
     if (e instanceof BusinessError) return { ok: false, error: e.message };

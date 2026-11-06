@@ -351,8 +351,16 @@ partly. The fixes are done in batches by the phase they belong to.
 - A client made automatically has no GSTIN or address. GST tax invoices stay blocked for them until you add these (D-63).
 - If a lead's phone or email is in an unusual format the client form rejects, it isn't converted automatically; you're told to do it by hand.
 
+### Batch B: content approval → tasks and change requests ✅ (06 Nov 2026)
+- **The client's comment goes onto the task.** Asking for changes on the approval link sends waiting work back to In Progress with the
+  comment on it, signed "(client)". If nothing was waiting, the comment goes on the deliverable's next open task (D-95).
+- **The person assigned to that task is notified**, with a link to the task.
+- **Running out of included revisions creates a Pending change request** (₹0 estimate) for you to price and approve.
+- **Database**: one change, a task comment's author is now optional and a comment can carry the client's name
+  (migration `20261106065151_flow_client_task_comments`). Nothing is removed.
+- **Tests**: 4 new integration tests (in tests/integration/phase5-delivery.test.ts); the full-chain browser test now continues to
+  convert to project → tasks → mark a task done.
+
 ### Still to do (later batches)
-- **Batch B (Phase 4/5, delivery)**: the client's comment on content goes onto the task, and running out of included revisions creates
-  a Pending change request automatically. Needs one schema change (a task comment can come from a client with no login).
 - **Batch C (Phase 6/7, renewals)**: a draft renewal offer 30 days before a retainer ends, made once per period. Needs one schema
   change (`Offer.renewalOfProjectId`). The browser test is extended to project → tasks → invoice → payment → dashboard.

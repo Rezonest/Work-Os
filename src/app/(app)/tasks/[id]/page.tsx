@@ -78,7 +78,7 @@ export default async function TaskDetailPage({ params }: { params: Promise<{ id:
             </Card>
           )}
           <ChecklistPanel taskId={id} items={task.checklist.map((i) => ({ id: i.id, title: i.title, isDone: i.isDone }))} />
-          <CommentsPanel taskId={id} comments={task.comments.map((c) => ({ id: c.id, author: c.author.name, when: formatDateTime(c.createdAt), body: c.body }))} />
+          <CommentsPanel taskId={id} comments={task.comments.map((c) => ({ id: c.id, author: c.author?.name ?? `${c.clientName ?? "Client"} (client)`, when: formatDateTime(c.createdAt), body: c.body }))} />
         </div>
         <div className="min-w-0 space-y-4">
           <Card>

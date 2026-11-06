@@ -248,6 +248,8 @@ Approving finishes that deliverable's client approval step. Asking for changes s
 on the client back to In Progress and counts one revision on the deliverable. Going past the included
 revisions tells you to consider a change request; nothing is billed by itself. Only the first of two
 answers given at the same moment counts.
+Since the connected-flow work, the client's comment also goes onto the task, and going past the included revisions creates a
+Pending change request (D-95). Nothing is billed until you price and approve it.
 
 ### D-45 Changing approved content sends it back
 If the topic, caption or creative of an approved item changes, it returns to Awaiting approval, so a
@@ -505,3 +507,13 @@ with a new address, so a link sent to the wrong person can be replaced.
 "New offer" on a lead fills in the title ("Proposal for …") and one line per service the lead is interested in, at that service's
 catalogue price, unit, GST rate and SAC code. These are drafts: you set quantities and prices before saving. Choosing a template
 instead starts from the template, as before.
+
+### D-95 The client's content answer reaches the task and the change requests (replaces part of D-44)
+When a client asks for changes on the approval link, their comment is added to each task that goes back from "Waiting for client" to
+In Progress, signed with the name they typed and marked "(client)". If no task was waiting on them (for example, they answered before
+the work reached the approval step), it goes on the deliverable's next open task, so it's never lost. Whoever is assigned to that task
+gets a notification linking to it. A task comment can now have no author for this reason (`TaskComment.authorId` is optional, with
+`clientName`). When the deliverable goes past its included revisions, a Pending change request is created, one per extra revision,
+with a ₹0 estimate and billable set, linked to the client, project and deliverable. You set the price and approve or reject it; only an
+approved one can be added to an invoice. A revision counted by hand on a task still only suggests a change request, since there's no
+client comment to record.

@@ -209,11 +209,25 @@ export async function respondToContent(db: Db, input: { token: string; itemId: s
     await tx.contentApproval.create({ data: { itemId: item.id, publicLinkId: link.id, decision: input.decision, comment: input.comment, byName: input.name, ip: input.ip } });
 
     let overRevisions = false;
+    let changeRequestId: string | null = null;
+    let commentedTaskIds: string[] = [];
     if (item.deliverableId) {
-      await applyClientDecision(tx, item.deliverableId, input.decision === "APPROVED", null);
+      commentedTaskIds = await applyClientDecision(
+        tx, item.deliverableId, input.decision === "APPROVED", null,
+        input.decision === "CHANGES_REQUESTED" ? { name: input.name, comment: input.comment } : undefined,
+      );
       if (input.decision === "CHANGES_REQUESTED") {
         const d = await tx.deliverable.update({ where: { id: item.deliverableId }, data: { revisionsUsed: { increment: 1 } } });
         overRevisions = revisionsExceeded(d.revisionsUsed, d.revisionsIncluded);
+        // Past the included revisions: log the extra work for you to price. Nothing is billed until you approve it.
+        if (overRevisions) {
+          const description = `Extra revision on “${item.topic}”: ${d.revisionsUsed} used, ${d.revisionsIncluded} included${input.comment ? `. Client: ${input.comment}` : ""}`.slice(0, 480);
+          const cr = await tx.changeRequest.create({
+            data: { clientId: item.clientId, projectId: d.projectId, deliverableId: d.id, description, estimate: 0, isBillable: true, status: "PENDING", createdById: null },
+          });
+          changeRequestId = cr.id;
+          await logActivity(tx, { actorId: null, action: "change_request.created", entityType: "ChangeRequest", entityId: cr.id, clientId: item.clientId, changes: { description, automatic: true, revisionsUsed: d.revisionsUsed, revisionsIncluded: d.revisionsIncluded } });
+        }
       }
     }
     await logActivity(tx, { actorId: null, action: input.decision === "APPROVED" ? "content.client_approved" : "content.client_changes", entityType: "ContentCalendarItem", entityId: item.id, clientId: item.clientId, changes: { by: input.name, ip: input.ip, ...(input.comment ? { comment: input.comment } : {}) } });
@@ -225,10 +239,20 @@ export async function respondToContent(db: Db, input: { token: string; itemId: s
       data: people.map((userId) => ({
         userId,
         title: approved ? `${item.client.companyName} approved content` : `${item.client.companyName} asked for changes`,
-        body: `${item.topic}${input.comment ? `: ${input.comment.slice(0, 160)}` : ""}${overRevisions ? " (past the included revisions, so consider a change request)" : ""}`,
+        body: `${item.topic}${input.comment ? `: ${input.comment.slice(0, 160)}` : ""}${overRevisions ? " (past the included revisions, so a change request was created for you to price)" : ""}`,
         href: `/content/${item.id}`,
       })),
     });
-    return { overRevisions };
+    // Whoever is doing the work hears about it too, with a link to the task that has the comment.
+    if (commentedTaskIds.length) {
+      const assigned = await tx.task.findMany({ where: { id: { in: commentedTaskIds }, assigneeId: { not: null } }, select: { id: true, assigneeId: true } });
+      const others = assigned.filter((t) => !people.includes(t.assigneeId!));
+      if (others.length) {
+        await tx.notification.createMany({
+          data: others.map((t) => ({ userId: t.assigneeId!, title: `${item.client.companyName} asked for changes`, body: item.topic, href: `/tasks/${t.id}` })),
+        });
+      }
+    }
+    return { overRevisions, changeRequestId };
   });
 }

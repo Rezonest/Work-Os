@@ -121,14 +121,39 @@ async function applyStatus(tx: Tx, task: Prisma.TaskGetPayload<object>, status: 
   await logActivity(tx, { actorId, action: "task.status_changed", entityType: "Task", entityId: task.id, clientId: task.clientId, changes: { status: { from: task.status, to: status }, ...(blockedReason ? { reason: blockedReason } : {}) } });
 }
 
-/** The client answered: approval steps finish, and work that was waiting on them goes back to the team. */
-export async function applyClientDecision(tx: Tx, deliverableId: string, approved: boolean, actorId: string | null) {
-  const tasks = await tx.task.findMany({ where: { deliverableId, archivedAt: null, status: { not: "DONE" } } });
+/**
+ * The client answered: approval steps finish, and work that was waiting on them goes back to the team.
+ * When they ask for changes, their comment is added to each task sent back to In Progress, or, if
+ * nothing was waiting on them, to the deliverable's next open task, so whoever does the work sees it.
+ * Returns the ids of the tasks that got the comment.
+ */
+export async function applyClientDecision(
+  tx: Tx,
+  deliverableId: string,
+  approved: boolean,
+  actorId: string | null,
+  feedback?: { name: string; comment: string | null },
+): Promise<string[]> {
+  const tasks = await tx.task.findMany({
+    where: { deliverableId, archivedAt: null, status: { not: "DONE" } },
+    orderBy: [{ dueDate: "asc" }, { createdAt: "asc" }],
+  });
+  const sentBack: typeof tasks = [];
   for (const t of tasks) {
     const waiting = t.status === "WAITING_CLIENT_APPROVAL";
     if (approved && (waiting || /client approval/i.test(t.title))) await applyStatus(tx, t, "DONE", null, actorId);
-    else if (!approved && waiting) await applyStatus(tx, t, "IN_PROGRESS", null, actorId);
+    else if (!approved && waiting) {
+      await applyStatus(tx, t, "IN_PROGRESS", null, actorId);
+      sentBack.push(t);
+    }
   }
+  if (approved || !feedback) return [];
+  const targets = sentBack.length ? sentBack : tasks.slice(0, 1);
+  const body = feedback.comment ? `Client asked for changes: ${feedback.comment}` : "Client asked for changes (no comment given).";
+  for (const t of targets) {
+    await tx.taskComment.create({ data: { taskId: t.id, authorId: null, clientName: feedback.name, body, mentions: [] } });
+  }
+  return targets.map((t) => t.id);
 }
 
 /** It's been published, so whatever was still open on that deliverable is finished. Returns how many tasks were closed. */

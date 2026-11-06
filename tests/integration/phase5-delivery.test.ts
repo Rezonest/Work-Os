@@ -290,6 +290,70 @@ describe("what a client's answer does to the work", () => {
     expect(note.body).toMatch(/change request/);
   });
 
+  it("puts the client's comment on the task sent back, signed with their name", async () => {
+    const r = await retainer();
+    const i = await db.contentCalendarItem.findFirstOrThrow({ where: { projectId: r.projectId } });
+    const waiting = await db.task.findFirstOrThrow({ where: { deliverableId: i.deliverableId, title: { contains: "Client approval" } } });
+    await changeTaskStatus(db, { taskId: waiting.id, status: "WAITING_CLIENT_APPROVAL", viewer: admin });
+
+    await answer(await tokenFor(r.clientId), i.id, "CHANGES_REQUESTED", "Use the blue logo");
+
+    const comments = await db.taskComment.findMany({ where: { taskId: waiting.id } });
+    expect(comments).toEqual([expect.objectContaining({ authorId: null, clientName: "Asha", body: "Client asked for changes: Use the blue logo" })]);
+    expect((await db.task.findUniqueOrThrow({ where: { id: waiting.id } })).status).toBe("IN_PROGRESS");
+  });
+
+  it("with nothing waiting on the client, the comment goes on the deliverable's next open task", async () => {
+    const r = await retainer();
+    const i = await db.contentCalendarItem.findFirstOrThrow({ where: { projectId: r.projectId } });
+    await answer(await tokenFor(r.clientId), i.id, "CHANGES_REQUESTED", null);
+
+    const withComment = await db.task.findMany({ where: { deliverableId: i.deliverableId, comments: { some: {} } }, include: { comments: true } });
+    expect(withComment).toHaveLength(1);
+    expect(withComment[0].title).toMatch(/Edit$/); // the first step of the chain
+    expect(withComment[0].comments[0].body).toBe("Client asked for changes (no comment given).");
+  });
+
+  it("going past the included revisions creates one Pending change request per extra revision, to price", async () => {
+    const r = await retainer(); // the service includes 1 revision
+    const i = await db.contentCalendarItem.findFirstOrThrow({ where: { projectId: r.projectId } });
+    const token = await tokenFor(r.clientId);
+
+    const first = await answer(token, i.id, "CHANGES_REQUESTED", "Too long");
+    expect(first.changeRequestId).toBeNull();
+    expect(await db.changeRequest.count()).toBe(0);
+
+    await reopenForApproval(db, i.id, admin.id);
+    const second = await answer(token, i.id, "CHANGES_REQUESTED", "Still too long");
+    const cr = await db.changeRequest.findUniqueOrThrow({ where: { id: second.changeRequestId! } });
+    expect(cr).toMatchObject({ clientId: r.clientId, projectId: r.projectId, deliverableId: i.deliverableId, status: "PENDING", isBillable: true, createdById: null });
+    expect(cr.estimate.toString()).toBe("0");
+    expect(cr.description).toMatch(/Extra revision on “.*”: 2 used, 1 included\. Client: Still too long/);
+    expect(await db.activityLog.count({ where: { action: "change_request.created", entityId: cr.id } })).toBe(1);
+
+    await reopenForApproval(db, i.id, admin.id);
+    await answer(token, i.id, "CHANGES_REQUESTED", "Once more");
+    expect(await db.changeRequest.count({ where: { deliverableId: i.deliverableId } })).toBe(2);
+
+    // Approving never creates one
+    await reopenForApproval(db, i.id, admin.id);
+    await answer(token, i.id);
+    expect(await db.changeRequest.count()).toBe(2);
+  });
+
+  it("tells the person assigned to the sent-back task, with a link to it", async () => {
+    const r = await retainer();
+    const i = await db.contentCalendarItem.findFirstOrThrow({ where: { projectId: r.projectId } });
+    const editor = await db.user.create({ data: { name: "Rohan", email: `rohan-${Math.random()}@example.com`, passwordHash: "x", role: "EMPLOYEE" } });
+    const waiting = await db.task.findFirstOrThrow({ where: { deliverableId: i.deliverableId, title: { contains: "Client approval" } } });
+    await db.task.update({ where: { id: waiting.id }, data: { assigneeId: editor.id } });
+    await changeTaskStatus(db, { taskId: waiting.id, status: "WAITING_CLIENT_APPROVAL", viewer: admin });
+
+    await answer(await tokenFor(r.clientId), i.id, "CHANGES_REQUESTED", "Brighter please");
+    const note = await db.notification.findFirstOrThrow({ where: { userId: editor.id } });
+    expect(note).toMatchObject({ title: expect.stringContaining("asked for changes"), href: `/tasks/${waiting.id}` });
+  });
+
   it("changing what was approved sends it back to the client; changing only the date doesn't", async () => {
     const c = await makeClient();
     const i = await newItem(c.id);

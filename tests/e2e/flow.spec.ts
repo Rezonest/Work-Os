@@ -5,12 +5,15 @@ import { login } from "./helpers";
  * The connected journey, one test that grows with each batch of the flow work.
  * Batch A: login → create lead → create offer (pre-filled from the lead) → send →
  * client accepts via the public link → the lead is Won and a client exists.
- * Later batches extend it: convert to project → tasks → invoice → payment → dashboard.
+ * Batch B: convert to project → tasks created → mark a task done.
+ * Batch C extends it: invoice → payment → dashboard.
  */
 const LEAD_PAGE = /\/leads\/(?!new$)[a-z0-9]+$/;
 const OFFER_PAGE = /\/offers\/(?!new$|templates)[a-z0-9]+$/;
+const PROJECT_PAGE = /\/projects\/[a-z0-9]{20,}$/;
 
-test("connected flow: lead → offer → accepted → client", async ({ page, browser }) => {
+test("connected flow: lead → offer → accepted → client → project → tasks", async ({ page, browser }) => {
+  test.setTimeout(180_000);
   const seed = `${Date.now()}`.slice(-9);
   const company = `Flow Co ${seed}`;
   await login(page);
@@ -68,7 +71,26 @@ test("connected flow: lead → offer → accepted → client", async ({ page, br
   await expect(page).toHaveURL(/\/clients\/[a-z0-9]+/);
   await expect(page.getByRole("heading", { name: company })).toBeVisible();
 
-  // The accepted offer now belongs to that client and can become a project (next batch)
+  // 6. The accepted offer now belongs to that client, so it converts straight into a project
   await page.goto(offerUrl);
   await expect(page.getByRole("link", { name: company }).first()).toBeVisible();
+  await page.getByRole("link", { name: "Convert to project" }).click();
+  await expect(page.getByLabel("Retainer ends")).toHaveValue(/\d{4}-\d{2}-\d{2}/);
+  await page.getByRole("button", { name: "Create project" }).click();
+  await expect(page).toHaveURL(PROJECT_PAGE);
+  const projectUrl = page.url();
+
+  // 7. Tasks were made from the services' templates; finish one
+  await page.goto(`${projectUrl}?tab=tasks`);
+  const taskLinks = page.getByRole("main").getByRole("listitem").getByRole("link");
+  await expect(taskLinks.first()).toBeVisible();
+  await taskLinks.first().click();
+  await expect(page).toHaveURL(/\/tasks\/[a-z0-9]{20,}$/);
+  await page.getByRole("combobox", { name: /status/i }).first().click();
+  await page.getByRole("option", { name: "Done", exact: true }).click();
+  await expect(page.getByRole("combobox", { name: /status/i }).first()).toContainText("Done");
+
+  // 8. The onboarding checklist came across from the offer to the project
+  await page.goto(projectUrl);
+  await expect(page.getByText(/Onboarding/i).first()).toBeVisible();
 });
