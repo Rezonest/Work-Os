@@ -3,7 +3,8 @@
 Internal agency management system for **Rezonest Digital & Services**, Bhosari, Pune.
 Leads → offers → projects → tasks → GST invoices → payments, all in one place.
 
-> Status: **All 10 phases built.** Runs on this PC. Not online yet: see docs/DEPLOYMENT.md.
+> Status: **All 10 phases built.** Live demo (sample data only): https://work-os-sable.vercel.app/dashboard
+> The real company setup is not online yet: see docs/DEPLOYMENT.md.
 > See [`docs/PROGRESS.md`](docs/PROGRESS.md) for what's built and what's next.
 
 ---
