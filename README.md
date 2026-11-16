@@ -77,18 +77,20 @@ the terminal where `pnpm dev` runs (until email/SMTP is set up).
 | `pnpm dev` | Run locally with live reload |
 | `pnpm check` | Lint + type-check + all tests + production build (run before every release) |
 | `pnpm test` | Unit tests + database integration tests (needs the `rezonest_workos_test` DB) |
-| `pnpm test:e2e` | Browser tests (builds and starts the app on port 3100). The first time, run `pnpm exec playwright install chromium`. Point `DATABASE_URL` at a seeded test database, because these tests add records |
+| `pnpm test:e2e` | Browser tests. They use their own database, `rezonest_workos_e2e` (refilled with the full sample set each run), build into `.next-e2e` and start on port 3100, so your data and running app are never touched. The first time, run `pnpm exec playwright install chromium` |
 | `pnpm db:migrate` | Create a new migration after changing `prisma/schema.prisma` (developers) |
 | `pnpm db:deploy` | Apply migrations (use on the server) |
-| `pnpm db:seed` | Master data + admin + sample data (sample only if there are no clients yet) |
+| `pnpm db:seed` | Master data + admin + a small demo set: 4 clients, 4 leads, 4 projects, a few invoices (only if there are no clients yet) |
+| `pnpm db:seed --full` | The larger sample set the browser tests use |
 | `pnpm db:seed --no-sample` | Master data + admin only (for go-live) |
 | `pnpm db:wipe-sample` | **Delete all sample business data before go-live** (asks you to type WIPE) |
 | `pnpm db:studio` | Browse the database in a web UI |
 
-The integration tests use a separate database called `rezonest_workos_test`. Create it once:
+The integration tests use a separate database called `rezonest_workos_test`, and the browser tests `rezonest_workos_e2e`. Create both once:
 
 ```bash
 createdb -U rezonest rezonest_workos_test
+createdb -U rezonest rezonest_workos_e2e
 ```
 
 ### Scheduled jobs

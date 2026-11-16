@@ -34,7 +34,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       className={`${GeistSans.variable} ${GeistMono.variable}`}
       style={{ "--brand": accent } as React.CSSProperties}
     >
-      <body>
+      {/* Browser extensions (e.g. ColorZilla's cz-shortcut-listen) add attributes to <body> before React loads.
+          This ignores attribute differences on this one tag only; real mismatches inside the page still show. */}
+      <body suppressHydrationWarning>
         <Providers>{children}</Providers>
         <PwaRegister />
       </body>

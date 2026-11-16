@@ -379,3 +379,11 @@ Project, issuing an invoice, and payment reminders.
 - A client made automatically has no GSTIN or address; GST tax invoices stay blocked for them until you add these (D-63).
 - The full-chain browser test needs a GSTIN to issue the invoice. If yours is empty it uses a sample one and puts the blank back after.
 - The Phase 10 browser test that creates test logins only runs on a database whose name contains "e2e", by design.
+
+## Demo data and test database (14 Nov 2026)
+- **Smaller demo set by default** (D-97): 4 clients, 4 leads, 4 projects, 4 employees, 16 invoices, 49 tasks, 10 expenses, 4 domains.
+  The working database was emptied of the old sample and test records and refilled with it.
+- **Browser tests use their own database** (`rezonest_workos_e2e`) with the full set, and their own build folder, so they no longer
+  touch your data or a running app.
+- Settings (GSTIN, UPI and the rest) were kept as they were.
+

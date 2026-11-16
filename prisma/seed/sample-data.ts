@@ -161,6 +161,38 @@ const PROJECTS: ProjDef[] = [
     ] },
 ];
 
+/**
+ * Two sizes of sample data:
+ * - "demo" (default): a small, connected set to show a client — 4 clients, 4 leads, 4 projects, 4 employees,
+ *   about 3–4 invoices per client, only the current month of work.
+ * - "full": the larger set the automated browser tests rely on (used by the separate e2e database).
+ */
+export type SeedProfile = "demo" | "full";
+const DEMO = {
+  clients: new Set<string>(["kalyani", "pristine", "brightpath", "urbanthreads"]),
+  leads: new Set<string>(["Moraya Builders", "Omkar Motors", "Mahalaxmi Jewellers", "Royal Caterers"]),
+  employees: new Set<string>(["priya", "rohan", "sneha", "kunal"]),
+};
+/** Demo projects: shorter history (about 4 monthly invoices each) and smaller monthly packages. */
+const DEMO_PROJECTS: ProjDef[] = [
+  { key: "kalyani-sm", client: "kalyani", name: "Kalyani Auto – Social & Meta Ads", startOffset: -100, retainerMonths: 12, manager: "priya",
+    services: [
+      { slug: "social-media", desc: "Social media management – LinkedIn, Instagram, Facebook", rate: 25000, pkg: { STATIC_POST: 4, REEL: 2 } },
+      { slug: "meta-ads", desc: "Meta Ads management fee (ad budget billed by Meta)", rate: 15000 },
+    ], adsBudget: 60000, adsPace: 0.85 },
+  { key: "pristine-ads", client: "pristine", name: "Pristine Heights – Lead Gen & Content", startOffset: -95, retainerMonths: 12, manager: "sneha",
+    services: [
+      { slug: "meta-ads", desc: "Meta Ads management – project launch campaigns", rate: 20000 },
+      { slug: "reels-posts", sub: "Monthly Package", desc: "Content package: 4 posts + 3 reels / month", rate: 35000, pkg: { STATIC_POST: 4, REEL: 3 } },
+    ], adsBudget: 150000, adsPace: 1.12 },
+  { key: "brightpath-ads", client: "brightpath", name: "BrightPath – Admissions Campaign", startOffset: -110, retainerMonths: 12, manager: "sneha",
+    services: [
+      { slug: "meta-ads", desc: "Meta Ads management – admissions lead generation", rate: 12000 },
+      { slug: "social-media", desc: "Social media management – Instagram & Facebook", rate: 15000, pkg: { STATIC_POST: 3, REEL: 2 } },
+    ], adsBudget: 45000, adsPace: 0.9 },
+  PROJECTS.find((p) => p.key === "urban-web")!,
+];
+
 const TOPICS = [
   "Festive offer announcement", "Behind the scenes", "Customer testimonial", "Product spotlight", "Team introduction",
   "Tips & tricks", "Before / after", "FAQ answered", "Myth vs fact", "Weekend special", "Process walkthrough",
@@ -168,7 +200,9 @@ const TOPICS = [
 ];
 
 // ── main ─────────────────────────────────────────────────────────────────────
-export async function seedSampleData(db: PrismaClient, adminId: string) {
+export async function seedSampleData(db: PrismaClient, adminId: string, profile: SeedProfile = "demo") {
+  const demo = profile === "demo";
+  const projectDefs = demo ? DEMO_PROJECTS : PROJECTS;
   const settings = await db.settings.findUniqueOrThrow({ where: { id: "agency" } });
   const depts = Object.fromEntries((await db.department.findMany()).map((x) => [x.name, x.id]));
   const sectors = Object.fromEntries((await db.sector.findMany()).map((x) => [x.name, x.id]));
@@ -180,7 +214,7 @@ export async function seedSampleData(db: PrismaClient, adminId: string) {
   // ── employees ──
   const passwordHash = await bcrypt.hash("Employee@123", 10);
   const emp: Record<EmpKey, string> = {} as Record<EmpKey, string>;
-  for (const e of EMPLOYEES) {
+  for (const e of EMPLOYEES.filter((x) => !demo || DEMO.employees.has(x.key))) {
     const u = await db.user.create({
       data: {
         name: e.name,
@@ -204,7 +238,7 @@ export async function seedSampleData(db: PrismaClient, adminId: string) {
   // ── clients ──
   const client: Record<ClientKey, { id: string; stateCode: string; country: string; pay: PayBehaviour; contact: string }> =
     {} as never;
-  for (const [i, c] of CLIENTS.entries()) {
+  for (const [i, c] of CLIENTS.filter((x) => !demo || DEMO.clients.has(x.key)).entries()) {
     const stateCode = "stateCode" in c ? c.stateCode : "27";
     const row = await db.client.create({
       data: {
@@ -363,7 +397,7 @@ export async function seedSampleData(db: PrismaClient, adminId: string) {
       offer: { status: "REJECTED", title: "Social Media – Royal Caterers", date: -32, items: [{ slug: "social-media", desc: "Social media management", rate: 15000, pkg: { STATIC_POST: 8, REEL: 2 } }], months: 6, reject: "Budget constraints – went with a freelancer" } },
   ];
 
-  for (const l of LEADS) {
+  for (const l of LEADS.filter((x) => !demo || DEMO.leads.has(x.company))) {
     const lead = await db.lead.create({
       data: {
         contactName: l.contact,
@@ -409,8 +443,10 @@ export async function seedSampleData(db: PrismaClient, adminId: string) {
   }
 
   // client upsell offers
-  queueOffer({ date: k(-8), clientKey: "suraksha", title: "SEO add-on – Suraksha Insurance Advisors", status: "SENT", followUp: k(-1),
-    items: [{ slug: "seo", sub: "Local SEO / Google Business Profile", desc: "Local SEO & Google Business Profile", rate: 10000 }], months: 6 });
+  if (!demo) {
+    queueOffer({ date: k(-8), clientKey: "suraksha", title: "SEO add-on – Suraksha Insurance Advisors", status: "SENT", followUp: k(-1),
+      items: [{ slug: "seo", sub: "Local SEO / Google Business Profile", desc: "Local SEO & Google Business Profile", rate: 10000 }], months: 6 });
+  }
   queueOffer({ date: k(-6), clientKey: "kalyani", title: "Corporate video – Kalyani Auto", status: "ACCEPTED", acceptedAt: at(T, 10), acceptedBy: "Sanjay Kalyani",
     items: [{ slug: "design-video", sub: "Video Shoot", desc: "Corporate plant video – 1 day shoot + 2 min edit", rate: 45000, billing: "ONE_TIME" }] });
 
@@ -419,7 +455,7 @@ export async function seedSampleData(db: PrismaClient, adminId: string) {
   const projects: ProjRow[] = [];
   let projSeq = 1;
 
-  for (const p of PROJECTS) {
+  for (const p of projectDefs) {
     const startKey = k(p.startOffset);
     const isRetainer = !!p.retainerMonths;
     const endKey = isRetainer ? addDaysKey(dateOnlyKey(addMonths(keyToDate(startKey), p.retainerMonths!)), -1) : null;
@@ -450,7 +486,7 @@ export async function seedSampleData(db: PrismaClient, adminId: string) {
     const number = await db.$transaction((tx) => nextDocNumber(tx, "QUOTATION", q.date));
     const id = await q.create(number);
     const offer = await db.offer.findUniqueOrThrow({ where: { id } });
-    const proj = PROJECTS.find((p) => p.name === offer.title && offer.status === "ACCEPTED");
+    const proj = projectDefs.find((p) => p.name === offer.title && offer.status === "ACCEPTED");
     if (proj) offerIdByProject.set(proj.key, id);
   }
 
@@ -537,7 +573,7 @@ export async function seedSampleData(db: PrismaClient, adminId: string) {
     { name: "Testing", due: 16, status: "PENDING", total: 180000 },
     { name: "Launch", due: 25, status: "PENDING", pct: 20, total: 180000 },
   ]);
-  const sgMs = await milestones("sg-web", [
+  const sgMs: Record<string, string> = !projByKey["sg-web"] ? {} : await milestones("sg-web", [
     { name: "Requirements & Specs", due: -145, status: "COMPLETED", pct: 50, total: 65000 },
     { name: "UI/UX Design", due: -135, status: "COMPLETED", pct: 30, total: 65000 },
     { name: "Development", due: -120, status: "COMPLETED", total: 65000 },
@@ -601,7 +637,7 @@ export async function seedSampleData(db: PrismaClient, adminId: string) {
   for (const pr of projects) {
     const p = pr.def;
     if (!p.retainerMonths) continue;
-    const months = [shiftMonth(CUR, -1), CUR].filter((m) => m >= pr.startKey.slice(0, 7));
+    const months = (demo ? [CUR] : [shiftMonth(CUR, -1), CUR]).filter((m) => m >= pr.startKey.slice(0, 7));
     for (const month of months) {
       await db.retainerRun.create({ data: { projectId: pr.id, month } });
       const { start, end } = monthRange(`${month}-01`);
@@ -677,13 +713,16 @@ export async function seedSampleData(db: PrismaClient, adminId: string) {
     }
   }
 
-  // a few hand-crafted alerts so every panel has something real
-  await makeTask({ projKey: "pristine-ads", slug: "reels-posts", due: k(-4), title: "Site-visit reel – Tower B sample flat", assignee: "rohan", priority: "HIGH", forced: { status: "WAITING_CLIENT_APPROVAL", changed: k(-4) } });
-  await makeTask({ projKey: "nexora-dm", slug: "digital-marketing", due: k(-3), title: "Landing page copy for ERP webinar", priority: "URGENT", forced: { status: "WAITING_CLIENT_APPROVAL", changed: k(-3) } });
-  await makeTask({ projKey: "sg-seo", slug: "seo", due: k(-6), title: "Fix 42 crawl errors from Search Console", priority: "HIGH", forced: { status: "IN_PROGRESS", changed: k(-7) } });
-  await makeTask({ projKey: "sg-seo", slug: "seo", due: k(-2), title: "GBP – add 20 product photos", forced: { status: "BLOCKED", changed: k(-3) } });
-  await makeTask({ projKey: "brightpath-ads", slug: "meta-ads", due: T, title: "Launch Diwali batch admissions campaign", priority: "URGENT", forced: { status: "IN_PROGRESS", changed: k(-1) } });
-  await makeTask({ projKey: "kalyani-sm", slug: "social-media", due: T, title: "LinkedIn post – IATF certification", forced: { status: "IN_REVIEW", changed: k(-1) } });
+  // a few hand-crafted alerts so every panel has something real (only for projects in this profile)
+  const handMade: Parameters<typeof makeTask>[0][] = [
+    { projKey: "pristine-ads", slug: "reels-posts", due: k(-4), title: "Site-visit reel – Tower B sample flat", assignee: "rohan", priority: "HIGH", forced: { status: "WAITING_CLIENT_APPROVAL", changed: k(-4) } },
+    { projKey: "nexora-dm", slug: "digital-marketing", due: k(-3), title: "Landing page copy for ERP webinar", priority: "URGENT", forced: { status: "WAITING_CLIENT_APPROVAL", changed: k(-3) } },
+    { projKey: "sg-seo", slug: "seo", due: k(-6), title: "Fix 42 crawl errors from Search Console", priority: "HIGH", forced: { status: "IN_PROGRESS", changed: k(-7) } },
+    { projKey: "sg-seo", slug: "seo", due: k(-2), title: "GBP – add 20 product photos", forced: { status: "BLOCKED", changed: k(-3) } },
+    { projKey: "brightpath-ads", slug: "meta-ads", due: T, title: "Launch Diwali batch admissions campaign", priority: "URGENT", forced: { status: "IN_PROGRESS", changed: k(-1) } },
+    { projKey: "kalyani-sm", slug: "social-media", due: T, title: "LinkedIn post – IATF certification", forced: { status: "IN_REVIEW", changed: k(-1) } },
+  ];
+  for (const t of handMade.filter((x) => projByKey[x.projKey])) await makeTask(t);
 
   // website project tasks per milestone
   const webTasks: [string, string, number, string?][] = [
@@ -706,16 +745,20 @@ export async function seedSampleData(db: PrismaClient, adminId: string) {
       assignee: m === "UI/UX Design" ? "rohan" : "kunal",
     });
   }
-  for (const [m, title, due] of [
-    ["Requirements & Specs", "Requirement workshop", -147],
-    ["UI/UX Design", "Website design – 12 pages", -136],
-    ["Development", "WordPress development", -121],
-    ["Launch", "Go-live", -111],
-  ] as const) {
-    await makeTask({ projKey: "sg-web", slug: "web-dev", due: k(due), title, milestoneId: sgMs[m], forced: { status: "DONE", completedKey: k(due) } });
+  if (projByKey["sg-web"]) {
+    for (const [m, title, due] of [
+      ["Requirements & Specs", "Requirement workshop", -147],
+      ["UI/UX Design", "Website design – 12 pages", -136],
+      ["Development", "WordPress development", -121],
+      ["Launch", "Go-live", -111],
+    ] as const) {
+      await makeTask({ projKey: "sg-web", slug: "web-dev", due: k(due), title, milestoneId: sgMs[m], forced: { status: "DONE", completedKey: k(due) } });
+    }
   }
-  for (const [title, due] of [["Logo concepts (3 options)", -335], ["Brand guidelines", -328], ["Brochure design – 8 pages", -318]] as const) {
-    await makeTask({ projKey: "deccan-design", slug: "design-video", due: k(due), title, forced: { status: "DONE", completedKey: k(due + 1) } });
+  if (projByKey["deccan-design"]) {
+    for (const [title, due] of [["Logo concepts (3 options)", -335], ["Brand guidelines", -328], ["Brochure design – 8 pages", -318]] as const) {
+      await makeTask({ projKey: "deccan-design", slug: "design-video", due: k(due), title, forced: { status: "DONE", completedKey: k(due + 1) } });
+    }
   }
 
   // time logs on completed tasks (for profitability)
@@ -757,6 +800,7 @@ export async function seedSampleData(db: PrismaClient, adminId: string) {
     "anjali-reels": [{ metric: "Instagram followers", unit: "count", target: 25000, base: 15800, growth: 2100 }],
   };
   for (const [pk, list] of Object.entries(TARGETS)) {
+    if (!projByKey[pk]) continue;
     for (const [i, t] of list.entries()) {
       const target = await db.target.create({
         data: { projectId: projByKey[pk].id, metric: t.metric, unit: t.unit, targetValue: t.target, higherIsBetter: t.higher ?? true, sortOrder: i },
@@ -776,7 +820,7 @@ export async function seedSampleData(db: PrismaClient, adminId: string) {
     const periods = [
       { start: -54, end: -25, status: "COMPLETED" as const, pace: 0.95, suffix: "Phase 1" },
       { start: -24, end: 5, status: "ACTIVE" as const, pace: p.adsPace ?? 0.9, suffix: "Phase 2" },
-    ].filter((x) => x.start >= p.startOffset);
+    ].filter((x) => x.start >= p.startOffset && (!demo || x.status === "ACTIVE")); // demo: one live campaign per client
     for (const per of periods) {
       const camp = await db.adCampaign.create({
         data: {
@@ -812,8 +856,15 @@ export async function seedSampleData(db: PrismaClient, adminId: string) {
     { c: "kalyani", kind: "BUSINESS_EMAIL", name: "kalyaniauto.in – 10 mailboxes", provider: "Google Workspace", plan: "Business Starter", exp: 205, cost: 13800, price: 18000, emails: 10 },
     { c: "suraksha", kind: "DOMAIN", name: "surakshaadvisors.in", provider: "GoDaddy", exp: 280, cost: 799, price: 1200 },
   ];
+  // Demo: four assets on the four demo clients, expiring in 7, 15, 30 days and later
+  const DEMO_ASSETS: typeof ASSETS = [
+    ASSETS[0],
+    { c: "pristine", kind: "HOSTING", name: "pristineheights.in", provider: "Hostinger", plan: "Business Shared", exp: 15, cost: 3600, price: 6000 },
+    { c: "brightpath", kind: "SSL", name: "brightpathacademy.in", provider: "Sectigo", exp: 30, cost: 1500, price: 2500 },
+    ASSETS.find((a) => a.c === "kalyani")!,
+  ];
   const assetIds: Record<string, string> = {};
-  for (const a of ASSETS) {
+  for (const a of demo ? DEMO_ASSETS : ASSETS) {
     const row = await db.domainHostingAsset.create({
       data: {
         clientId: client[a.c].id, kind: a.kind, name: a.name, provider: a.provider, plan: a.plan, purchaseDate: keyToDate(addDaysKey(k(a.exp), -365)),
@@ -859,7 +910,8 @@ export async function seedSampleData(db: PrismaClient, adminId: string) {
   invSpecs.sort((a, b) => a.date.localeCompare(b.date));
 
   const issued: { id: string; clientKey: ClientKey; projKey?: string; date: string; due: string; grand: string; taxable: string; index: number }[] = [];
-  for (const spec of invSpecs) {
+  // Only invoices for clients and projects that exist in this profile
+  for (const spec of invSpecs.filter((s) => client[s.clientKey] && (!s.projKey || projByKey[s.projKey]))) {
     const mode = taxModeFor(spec.clientKey);
     const lines: LineInput[] = spec.lines.map((l) => ({ quantity: l.qty ?? 1, rate: l.rate, gstRate: 18 }));
     const t = computeTotals(lines, mode);
@@ -962,9 +1014,9 @@ export async function seedSampleData(db: PrismaClient, adminId: string) {
       await pay(ck, minKey(addDaysKey(inv.due, randInt(-6, 4)), T), [{ invoiceId: inv.id, amount: money(payable) }]);
     }
   }
-  // unallocated advance from Dr. Anjali
+  // unallocated advance (Dr. Anjali in the full set, Kalyani in the demo)
   await db.payment.create({
-    data: { clientId: client.anjali.id, date: d(-1), amount: "10000.00", mode: "UPI", reference: "UPI/AXIS/882910", notes: "Advance for next month", createdById: adminId },
+    data: { clientId: (client.anjali ?? client.kalyani).id, date: d(-1), amount: "10000.00", mode: "UPI", reference: "UPI/AXIS/882910", notes: "Advance for next month", createdById: adminId },
   });
 
   // recompute invoice caches (paid, TDS, credited, balance, payment status)
@@ -996,8 +1048,11 @@ export async function seedSampleData(db: PrismaClient, adminId: string) {
     { cat: "FREELANCER", desc: "Freelance model – reels", vendor: "Talent agency", amount: 3500, gst: 0, monthly: true, projKey: "anjali-reels", months: 2 },
     { cat: "TRAVEL", desc: "Client visits – fuel & cab", vendor: "Various", amount: 1800, gst: 0, monthly: true },
   ];
-  for (const e of EXP) {
-    for (let m = 0; m < (e.months ?? 12); m++) {
+  // Demo: three kinds of monthly cost (Canva, Adobe, the freelancer on Pristine) for the last 2 months
+  const DEMO_EXPENSES = new Set(["Canva Pro – team", "Adobe Creative Cloud", "Freelance videographer – site shoots"]);
+  for (const e of EXP.filter((x) => (!x.projKey || projByKey[x.projKey]) && (!demo || DEMO_EXPENSES.has(x.desc)))) {
+    const months = demo ? Math.min(e.months ?? 12, 2) : (e.months ?? 12);
+    for (let m = 0; m < months; m++) {
       const month = shiftMonth(CUR, -m);
       const date = minKey(`${month}-0${randInt(3, 9)}`, T);
       if (date > T) continue;
@@ -1018,7 +1073,7 @@ export async function seedSampleData(db: PrismaClient, adminId: string) {
     { cat: "OTHER", desc: "Studio lights & mic", amount: 8900, gst: 1602, days: -95 },
     { cat: "SOFTWARE_TOOLS", desc: "WooCommerce premium plugins", amount: 6200, gst: 1116, days: -14, projKey: "urban-web" },
   ];
-  for (const e of ONE_OFF) {
+  for (const e of ONE_OFF.filter((x) => (!x.projKey || projByKey[x.projKey]) && (!x.ck || client[x.ck]))) {
     await db.expense.create({
       data: {
         date: d(e.days), category: e.cat, description: e.desc, amount: e.amount, gstPaid: e.gst,
@@ -1035,7 +1090,7 @@ export async function seedSampleData(db: PrismaClient, adminId: string) {
     { ck: "nexora", type: "EMAIL", days: -7, summary: "Sent quarterly SEO review deck." },
     { ck: "sahyadri", type: "CALL", days: -1, summary: "Discussed renewal of retainer ending this month. Positive.", next: "Send renewal offer", nextDays: 2 },
   ];
-  for (const c of COMMS) {
+  for (const c of COMMS.filter((x) => client[x.ck])) {
     await db.communicationLog.create({
       data: { clientId: client[c.ck].id, type: c.type, date: at(k(c.days), 16), summary: c.summary, nextAction: c.next, nextActionDate: c.nextDays !== undefined ? d(c.nextDays) : null, createdById: adminId },
     });

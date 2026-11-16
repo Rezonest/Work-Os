@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // The browser tests build into their own folder (.next-e2e) so they never overwrite a running app.
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   poweredByHeader: false,
   // The PDF library and its fonts are loaded from disk when the server runs.
   serverExternalPackages: ["@react-pdf/renderer"],

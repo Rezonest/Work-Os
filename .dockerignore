@@ -10,3 +10,5 @@ playwright-report
 coverage
 *.dump
 *.log
+.next-e2e
+.local-db

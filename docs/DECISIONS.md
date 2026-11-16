@@ -531,3 +531,14 @@ at creation, as every offer does (D-26), and is never sent by itself.
 - **Traceable**: `Offer.renewalOfProjectId` links the draft to its project. The project's overview lists its renewal offers, and the
   "retainer ending" alert opens the draft and shows its status instead of saying "send renewal offer".
 
+### D-97 A small demo set by default; the full set only for tests
+`pnpm db:seed` now loads a small, connected demo to show a client: Kalyani Auto (social and Meta Ads, pays on time, one credit
+note, an advance), Pristine Heights (lead generation and content, ad budget over 100%), BrightPath (admissions campaign, overdue
+invoices), and UrbanThreads (a website with milestones and a proforma, a domain expiring in 7 days). Also 4 leads, one per stage
+(New, Requirement discussed, Offer sent, Lost), 4 employees, about 3–5 invoices per client, only the current month of tasks, one live ad
+campaign per client, and 4 domains or hosting items. This replaces the brief's larger seed (§11) for everyday use.
+`pnpm db:seed --full` keeps the larger set, because many browser tests look for its clients by name.
+
+The browser tests now run on their own database (`rezonest_workos_e2e`), emptied and refilled with the full set before each run, and
+build into `.next-e2e` on port 3100. Earlier they ran on the working database, which left a sample GSTIN and UPI ID in Settings.
+

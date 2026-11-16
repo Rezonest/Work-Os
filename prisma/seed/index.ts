@@ -4,7 +4,8 @@ import { seedMasterData } from "./master-data";
 import { seedSampleData } from "./sample-data";
 
 /**
- * pnpm db:seed            → master data + admin + sample data (only if DB has no clients)
+ * pnpm db:seed             → master data + admin + a small demo set (only if DB has no clients)
+ * pnpm db:seed --full      → the larger sample set the automated browser tests use (e2e database)
  * pnpm db:seed --no-sample → master data + admin only (use this for go-live)
  */
 const db = new PrismaClient();
@@ -31,8 +32,9 @@ async function main() {
     console.log("→ Clients already exist — skipping sample data. Run `pnpm db:wipe-sample` first to reseed.");
     return;
   }
-  console.log("→ Sample data (Pune clients, leads, offers, projects, tasks, invoices, payments…)");
-  await seedSampleData(db, admin.id);
+  const profile = process.argv.includes("--full") ? "full" : "demo";
+  console.log(profile === "full" ? "→ Full sample data (for automated tests)" : "→ Demo data (4 clients, 4 leads, 4 projects, a few invoices…)");
+  await seedSampleData(db, admin.id, profile);
   console.log("✓ Seed complete");
 }
 
