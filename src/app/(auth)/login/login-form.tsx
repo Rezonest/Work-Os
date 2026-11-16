@@ -5,6 +5,7 @@ import Link from "next/link";
 import { loginAction } from "@/server/actions/auth";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PasswordInput } from "@/components/shared/password-input";
 import { SubmitButton } from "@/components/shared/submit-button";
 import { FormMessage } from "@/components/shared/form-message";
 
@@ -29,7 +30,7 @@ export function LoginForm({ callbackUrl, notice }: { callbackUrl?: string; notic
             Forgot password?
           </Link>
         </div>
-        <Input id="password" name="password" type="password" autoComplete="current-password" required />
+        <PasswordInput id="password" name="password" autoComplete="current-password" required />
       </div>
       <SubmitButton className="w-full" pendingText="Signing in…">
         Sign in
